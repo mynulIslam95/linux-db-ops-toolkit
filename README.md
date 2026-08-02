@@ -1,69 +1,66 @@
 # Linux DB Ops Toolkit
 
-Shell-based operations toolkit for **MySQL / MariaDB on Linux**.
+Shell-based operations toolkit that works against a **real relational database**.
 
-Built to practice the day-to-day work of a junior database / Linux operator:
-health checks, backup, restore dry-run, simple monitoring, and operational documentation.
+Default engine: **SQLite** (`data/ops_lab.db`)  
+Optional engine: **MySQL / MariaDB** (`DB_ENGINE=mysql`)
 
 ## What it does
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/db_healthcheck.sh` | Checks DB process, port, connectivity, and basic status |
-| `scripts/db_backup.sh` | Creates a timestamped logical backup (`mysqldump`) |
-| `scripts/db_restore_dryrun.sh` | Validates a backup file without applying it |
-| `scripts/db_monitor.sh` | Collects simple availability / size metrics into a log |
-| `scripts/db_ops_report.sh` | Writes a short daily ops summary |
+| `scripts/db_init.sh` | Creates the real DB + schema + sample rows |
+| `scripts/db_healthcheck.sh` | SQL connectivity + table/row checks |
+| `scripts/db_backup.sh` | Logical dump of the live DB |
+| `scripts/db_restore_dryrun.sh` | Loads dump into a temp DB to prove restore works |
+| `scripts/db_monitor.sh` | Reads live metrics and writes `db_checks` rows |
+| `scripts/db_ops_report.sh` | Daily ops summary from DB + backups |
 
-## Requirements
-
-- Linux or macOS with Bash
-- MySQL or MariaDB client tools (`mysql`, `mysqldump`)
-- Optional: a local MySQL/MariaDB instance for live tests
-
-## Quick start (safe / offline)
-
-Scripts support a **mock mode** so you can demo without a real database:
+## Quick start (real SQLite DB)
 
 ```bash
-export DB_OPS_MOCK=1
+chmod +x scripts/*.sh
+./scripts/db_init.sh
 ./scripts/db_healthcheck.sh
 ./scripts/db_backup.sh
-./scripts/db_restore_dryrun.sh ./backups/mock_demo.sql
+./scripts/db_restore_dryrun.sh backups/*.sql
 ./scripts/db_monitor.sh
 ./scripts/db_ops_report.sh
+
+# Inspect the real database
+sqlite3 data/ops_lab.db "SELECT * FROM services;"
+sqlite3 data/ops_lab.db "SELECT * FROM incidents;"
+sqlite3 data/ops_lab.db "SELECT * FROM db_checks;"
 ```
 
-## Live mode (local DB)
+## Optional: MySQL / MariaDB
+
+If you have a local MySQL server and credentials:
 
 ```bash
+export DB_ENGINE=mysql
 export DB_HOST=127.0.0.1
 export DB_PORT=3306
 export DB_USER=root
+export DB_PASSWORD='your-password'
 export DB_NAME=ops_lab
-# export DB_PASSWORD=...   # prefer ~/.my.cnf in real use
+./scripts/db_init.sh
 ./scripts/db_healthcheck.sh
-./scripts/db_backup.sh
 ```
 
 ## Project layout
 
 ```
+data/        live SQLite database (created by db_init)
+sql/         schema + seed data
 scripts/     operational Bash scripts
-sql/         sample schema for a small ops lab database
-docs/        runbooks (backup, incident, failover checklist)
-examples/    sample output
+docs/        backup / incident / failover runbooks
+backups/     logical dumps
+logs/        metrics + daily reports
 ```
 
-## Learning focus (maps to DBA work)
+## Learning focus
 
-- Availability checks and clear exit codes
-- Backup / restore discipline
-- Shell automation for recurring ops tasks
-- Short runbooks for incidents and failover tests
-- Logging and ops reporting
-
-## Notes
-
-This is a **learning / portfolio project**, not a production Dataport deployment.
-It demonstrates Linux + shell automation + relational DB operations habits.
+- Real DB init, SQL checks, backup/restore validation
+- Linux shell automation around database operations
+- Short Betriebs-/DR documentation for availability work

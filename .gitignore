@@ -1,4 +1,6 @@
 backups/
 logs/
+data/
 *.log
+*.db
 .DS_Store

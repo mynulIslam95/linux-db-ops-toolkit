@@ -1,63 +1,51 @@
 #!/usr/bin/env bash
-# Availability and basic health check for MySQL/MariaDB on Linux
+# Health check against a real database
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
-require_client
+require_tools
 FAIL=0
+log INFO "Health check start (engine=$DB_ENGINE)"
 
-log INFO "Starting health check (host=$DB_HOST port=$DB_PORT db=$DB_NAME mock=$MOCK_MODE)"
-
-if [[ "$MOCK_MODE" == "1" ]]; then
-  log OK "Mock: process check passed"
-  log OK "Mock: port $DB_PORT reachable"
-  log OK "Mock: SQL connectivity OK"
-  log OK "Mock: database '$DB_NAME' exists"
-  log INFO "Health check finished with exit code 0"
-  exit 0
-fi
-
-# Process check (best effort on Linux/macOS)
-if pgrep -x mysqld >/dev/null 2>&1 || pgrep -x mariadbd >/dev/null 2>&1; then
-  log OK "Database process is running"
-else
-  log WARN "mysqld/mariadbd process not found (may still be remote)"
-fi
-
-# Port check
-if command -v nc >/dev/null 2>&1; then
-  if nc -z -w 2 "$DB_HOST" "$DB_PORT" >/dev/null 2>&1; then
-    log OK "Port $DB_PORT is open on $DB_HOST"
+if [[ "$DB_ENGINE" == "sqlite" ]]; then
+  ensure_sqlite_db
+  if [[ -f "$SQLITE_DB" ]]; then
+    log OK "Database file exists: $SQLITE_DB"
   else
-    log ERROR "Port $DB_PORT is not reachable on $DB_HOST"
-    FAIL=1
+    log ERROR "Database file missing"; FAIL=1
+  fi
+
+  if sql_exec "SELECT 1;" >/dev/null; then
+    log OK "SQL connectivity OK"
+  else
+    log ERROR "SQL connectivity failed"; FAIL=1
+  fi
+
+  TABLES="$(sql_exec ".tables" 2>/dev/null || sql_exec "SELECT name FROM sqlite_master WHERE type='table';")"
+  log INFO "Tables: $TABLES"
+
+  SERVICES="$(sql_exec "SELECT COUNT(*) FROM services;")"
+  OPEN_INC="$(sql_exec "SELECT COUNT(*) FROM incidents WHERE status='open';")"
+  log INFO "services=$SERVICES open_incidents=$OPEN_INC"
+
+  sql_exec "INSERT INTO db_checks (check_name, result, notes) VALUES ('healthcheck', 'OK', 'automated run');" >/dev/null
+  log OK "Wrote healthcheck row into db_checks"
+else
+  # shellcheck disable=SC2086
+  if eval mysql $(mysql_args) -e "SELECT 1;" >/dev/null 2>&1; then
+    log OK "SQL connectivity OK"
+  else
+    log ERROR "SQL connectivity failed"; FAIL=1
+  fi
+  # shellcheck disable=SC2086
+  if eval mysql $(mysql_args) -e "USE \`$DB_NAME\`;" >/dev/null 2>&1; then
+    log OK "Database '$DB_NAME' accessible"
+  else
+    log ERROR "Database '$DB_NAME' not accessible"; FAIL=1
   fi
 fi
-
-# SQL connectivity
-# shellcheck disable=SC2046
-if mysql $(mysql_base) -e "SELECT 1;" >/dev/null 2>&1; then
-  log OK "SQL connectivity OK"
-else
-  log ERROR "SQL connectivity failed"
-  FAIL=1
-fi
-
-# Database exists
-# shellcheck disable=SC2046
-if mysql $(mysql_base) -e "USE \`$DB_NAME\`;" >/dev/null 2>&1; then
-  log OK "Database '$DB_NAME' is accessible"
-else
-  log ERROR "Database '$DB_NAME' is not accessible"
-  FAIL=1
-fi
-
-# Simple status snapshot
-# shellcheck disable=SC2046
-mysql $(mysql_base) -N -e "SHOW STATUS WHERE Variable_name IN ('Threads_connected','Uptime','Questions');" 2>/dev/null \
-  | while read -r name value; do log INFO "status $name=$value"; done || true
 
 if [[ "$FAIL" -eq 0 ]]; then
   log INFO "Health check finished with exit code 0"
